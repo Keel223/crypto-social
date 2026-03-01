@@ -1,4 +1,4 @@
-const API_URL = 'https://ВАШ-URL-С-RENDER.onrender.com'; // Вставим сюда ссылку позже!
+const API_URL = 'https://crypto-social.onrender.com'; // Вставим сюда ссылку позже!
 let currentPhotoIndex = 0;
 let photos = [];
 
@@ -57,5 +57,6 @@ async function sendDonate(id, amount) {
     });
     alert('Спасибо! Донат отправлен в блокчейн (имитация)');
 }
+
 
 loadFeed();

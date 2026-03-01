@@ -11,7 +11,7 @@ const app = express();
 
 // --- КОНФИГ ---
 const ADMIN_ID = "6188749367"; 
-const IMGBB_API_KEY = "ВАШ_КЛЮЧ_ОТ_IMGBB"; // Вставьте сюда ключ с сайта imgbb
+const IMGBB_API_KEY = "74f207f789e389b4ad820a76f7bbe34c"; // Вставьте сюда ключ с сайта imgbb
 
 app.use(cors());
 app.use(express.json());

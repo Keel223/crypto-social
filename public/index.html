@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Crypto Swipe Social</title>
+    <script src="https://unpkg.com/@tonconnect/ui@latest/dist/tonconnect-ui.min.js"></script>
+    <style>
+        /* --- СТИЛИ --- */
+        :root { --primary: #00FFA3; --bg: #000; }
+        body { margin: 0; font-family: sans-serif; background: var(--bg); color: #fff; height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
+        
+        header { padding: 10px 15px; display: flex; justify-content: space-between; align-items: center; background: #111; border-bottom: 1px solid #222; z-index: 100; }
+        .logo { font-weight: 900; font-size: 20px; color: var(--primary); }
+        
+        .tab-bar { display: flex; background: #111; border-top: 1px solid #222; padding: 5px 0; }
+        .tab-btn { flex: 1; background: none; border: none; color: #666; padding: 10px; cursor: pointer; font-size: 12px; font-weight: bold; }
+        .tab-btn.active { color: var(--primary); border-top: 2px solid var(--primary); }
+
+        .view { display: none; flex: 1; overflow-y: auto; position: relative; }
+        .view.active { display: flex; flex-direction: column; }
+
+        /* Лента */
+        #feed-view { background: #000; overflow: hidden; }
+        .photo-card { width: 100%; height: 100%; background-size: cover; background-position: center; position: relative; display: flex; align-items: flex-end; }
+        .photo-info { position: absolute; bottom: 0; left: 0; width: 100%; padding: 20px; background: linear-gradient(to top, rgba(0,0,0,0.9), transparent); box-sizing: border-box; }
+        .stats { display: flex; gap: 15px; color: #ccc; font-size: 14px; }
+        
+        /* Полоса доната */
+        .donate-overlay { position: absolute; bottom: 0; left: 0; width: 100%; height: 0; background: linear-gradient(to top, rgba(0, 255, 163, 0.8), transparent); transition: height 0.05s; pointer-events: none; display: flex; justify-content: center; align-items: center; }
+        .donate-text { font-size: 60px; font-weight: 900; opacity: 0; }
+
+        /* Профиль */
+        .profile-header { padding: 30px 20px; text-align: center; }
+        .balance-big { font-size: 40px; font-weight: bold; color: var(--primary); margin: 10px 0; }
+        .btn-action { background: var(--primary); color: #000; border: none; padding: 10px 20px; border-radius: 20px; font-weight: bold; cursor: pointer; margin: 5px; }
+        .btn-outline { background: transparent; border: 1px solid var(--primary); color: var(--primary); }
+        
+        /* Админка */
+        .admin-panel { background: #222; padding: 15px; }
+        .admin-title { color: #ff4d4d; font-weight: bold; margin-bottom: 10px; }
+        .request-item { background: #333; padding: 10px; margin-bottom: 10px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; }
+        
+        /* Модалки */
+        .modal { position: fixed; bottom: 0; left: 0; width: 100%; height: 60%; background: #1a1a1a; border-top-left-radius: 20px; border-top-right-radius: 20px; transform: translateY(100%); transition: transform 0.3s; z-index: 200; display: flex; flex-direction: column; }
+        .modal.open { transform: translateY(0); }
+        .modal-header { padding: 15px; border-bottom: 1px solid #333; display: flex; justify-content: space-between; }
+        .modal-body { flex: 1; overflow-y: auto; padding: 15px; }
+        
+        input { width: 100%; padding: 10px; border-radius: 10px; border: 1px solid #333; background: #000; color: #fff; margin-bottom: 10px; box-sizing: border-box; }
+        
+        .upload-btn { position: absolute; bottom: 80px; right: 20px; width: 60px; height: 60px; background: var(--primary); border-radius: 50%; display: flex; align-items: center; justify-content: center; z-index: 50; }
+        input[type="file"] { display: none; }
+        
+        /* Пополнение */
+        .deposit-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 15px; }
+        .deposit-btn { padding: 15px; background: #222; border: 1px solid #333; color: #fff; border-radius: 10px; cursor: pointer; text-align: center; }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="logo">SWIPE</div>
+        <div id="ton-connect-wallet"></div>
+    </header>
+
+    <!-- Лента -->
+    <div id="feed-view" class="view active">
+        <div id="card-container" style="width: 100%; height: 100%;"></div>
+        <label class="upload-btn">
+            <svg viewBox="0 0 24 24" width="30" height="30" fill="#000"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+            <input type="file" id="photo-input" accept="image/*">
+        </label>
+    </div>
+
+    <!-- Профиль -->
+    <div id="profile-view" class="view">
+        <div class="profile-header">
+            <div style="color:#888;">Ваш баланс</div>
+            <div class="balance-big" id="my-balance">$0.00</div>
+            <button class="btn-action" onclick="openDepositModal()">💳 Пополнить</button>
+            <button class="btn-action btn-outline" onclick="openPayoutModal()">Вывести</button>
+        </div>
+        
+        <!-- Админка -->
+        <div id="admin-panel" class="admin-panel" style="display:none;">
+            <div class="admin-title">👑 Админ Панель</div>
+            <div id="requests-list">Загрузка...</div>
+        </div>
+
+        <div style="padding: 10px; color: #888; text-align: center;">Мои фото</div>
+        <div class="my-photos-grid" id="my-photos-grid"></div>
+    </div>
+
+    <!-- Модалки -->
+    <div class="modal" id="deposit-modal">
+        <div class="modal-header"><span>Пополнение (TON)</span><span style="cursor:pointer" onclick="closeModal('deposit-modal')">✕</span></div>
+        <div class="modal-body">
+            <p style="color:#888; text-align:center;">Выберите сумму (1 TON ≈ $5)</p>
+            <div class="deposit-grid">
+                <div class="deposit-btn" onclick="sendDeposit(1)">1 TON</div>
+                <div class="deposit-btn" onclick="sendDeposit(5)">5 TON</div>
+                <div class="deposit-btn" onclick="sendDeposit(10)">10 TON</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="payout-modal">
+        <div class="modal-header"><span>Заявка на вывод</span><span style="cursor:pointer" onclick="closeModal('payout-modal')">✕</span></div>
+        <div class="modal-body">
+            <p>Доступно: <b id="avail-amount">$0</b></p>
+            <input type="number" id="payout-amount" placeholder="Сумма ($)">
+            <input type="text" id="payout-wallet" placeholder="Ваш TON кошелек">
+            <button class="btn-action" style="width: 100%" onclick="requestPayout()">Подать заявку</button>
+        </div>
+    </div>
+
+    <div class="modal" id="comments-modal">
+        <div class="modal-header"><span>Комментарии</span><span style="cursor:pointer" onclick="closeModal('comments-modal')">✕</span></div>
+        <div class="modal-body" id="comments-list"></div>
+        <div style="padding: 10px; background: #111; display: flex; gap: 10px;">
+            <input type="text" id="comment-input" placeholder="Коммент..." style="margin-bottom: 0;">
+            <button class="btn-action" onclick="postComment()">➤</button>
+        </div>
+    </div>
+
+    <div class="tab-bar">
+        <button class="tab-btn active" onclick="switchTab('feed')">🏠 Лента</button>
+        <button class="tab-btn" onclick="switchTab('profile')">👤 Профиль</button>
+    </div>
+
+<script>
+    // --- НАСТРОЙКИ ---
+    // Если сайт на Vercel, API_URL можно оставить пустым '' или указать полный адрес
+    const API_URL = ''; 
+    const ADMIN_ID = "6188749367";
+    const PROJECT_WALLET = "UQD__________________________________________0Vo"; // ВАШ TON АДРЕС
+    
+    let photos = [];
+    let currentIndex = 0;
+    let currentUser = { id: null, balance: 0, isAdmin: false };
+    let tonConnectUI;
+    let currentPhotoId = null;
+
+    window.onload = async () => {
+        // TON Connect
+        tonConnectUI = new TON_CONNECT_UI.TonConnectUI({
+            manifestUrl: 'https://raw.githubusercontent.com/ton-connect/ton-connect-demo/main/tonconnect-manifest.json',
+            buttonRootId: 'ton-connect-wallet'
+        });
+
+        // ID пользователя
+        if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe.user) {
+            currentUser.id = window.Telegram.WebApp.initDataUnsafe.user.id.toString();
+        } else {
+            // Для теста в браузере ставим ваш ID админа
+            currentUser.id = ADMIN_ID; 
+        }
+
+        await loadFeed();
+    };
+
+    // --- Навигация ---
+    function switchTab(tab) {
+        document.querySelectorAll('.view').forEach(el => el.classList.remove('active'));
+        document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+        
+        if (tab === 'feed') {
+            document.getElementById('feed-view').classList.add('active');
+            document.querySelector('.tab-btn:nth-child(1)').classList.add('active');
+            document.querySelector('.upload-btn').style.display = 'flex';
+        } else {
+            document.getElementById('profile-view').classList.add('active');
+            document.querySelector('.tab-btn:nth-child(2)').classList.add('active');
+            document.querySelector('.upload-btn').style.display = 'none';
+            loadProfile();
+        }
+    }
+
+    // --- Данные ---
+    async function loadFeed() {
+        const res = await fetch(API_URL + '/api/feed');
+        photos = await res.json();
+        if (photos.length > 0) showCard(0);
+    }
+
+    async function loadProfile() {
+        const res = await fetch(API_URL + '/api/get_profile', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: currentUser.id })
+        });
+        const data = await res.json();
+        
+        currentUser.balance = data.balance;
+        document.getElementById('my-balance').innerText = `$${data.balance.toFixed(2)}`;
+        document.getElementById('avail-amount').innerText = `$${data.balance.toFixed(2)}`;
+
+        if (data.isAdmin) {
+            document.getElementById('admin-panel').style.display = 'block';
+            loadAdminRequests();
+        } else {
+            document.getElementById('admin-panel').style.display = 'none';
+        }
+
+        const grid = document.getElementById('my-photos-grid');
+        grid.innerHTML = '';
+        photos.filter(p => p.authorId == currentUser.id).forEach(p => {
+            const img = document.createElement('img');
+            img.src = p.url; // Ссылка уже полная с ImgBB
+            img.style.width = "100%";
+            grid.appendChild(img);
+        });
+    }
+
+    async function loadAdminRequests() {
+        const res = await fetch(API_URL + '/api/admin/get_requests', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ adminId: currentUser.id })
+        });
+        const requests = await res.json();
+        const list = document.getElementById('requests-list');
+        
+        if (requests.length === 0) {
+            list.innerHTML = "Нет заявок";
+        } else {
+            list.innerHTML = requests.map(r => `
+                <div class="request-item">
+                    <div>
+                        <div><b>$${r.amount}</b></div>
+                        <div style="font-size:12px; color:#888">${r.wallet.substring(0, 15)}...</div>
+                    </div>
+                    <div>
+                        <button class="btn-action" onclick="resolveRequest(${r.id}, 'approve')">✓</button>
+                        <button class="btn-action btn-outline" style="border-color: #ff4d4d; color: #ff4d4d;" onclick="resolveRequest(${r.id}, 'reject')">✕</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+    }
+
+    async function resolveRequest(reqId, action) {
+        await fetch(API_URL + '/api/admin/resolve_request', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ adminId: currentUser.id, requestId: reqId, action: action })
+        });
+        alert(action === 'approve' ? 'Одобрено!' : 'Отклонено, средства возвращены.');
+        loadAdminRequests();
+    }
+
+    // --- Карточки ---
+    function showCard(index) {
+        if (index >= photos.length) {
+            document.getElementById('card-container').innerHTML = '<div style="text-align:center; padding:20px; color:#555;">Конец ленты</div>';
+            return;
+        }
+        currentIndex = index;
+        const photo = photos[index];
+        const container = document.getElementById('card-container');
+
+        const card = document.createElement('div');
+        card.className = 'photo-card';
+        card.style.backgroundImage = `url(${photo.url})`;
+        
+        card.innerHTML = `
+            <div class="photo-info">
+                <div class="author-name">@${photo.author}</div>
+                <div class="stats">
+                    <span>❤️ ${photo.likes || 0}</span>
+                    <span onclick="openComments(${photo.id})" style="cursor:pointer">💬 ${photo.comments ? photo.comments.length : 0}</span>
+                    <span>💸 $${photo.donations || 0}</span>
+                </div>
+            </div>
+            <div class="donate-overlay" id="donate-overlay">
+                <div class="donate-text" id="donate-text">$0</div>
+            </div>
+        `;
+
+        // Свайп
+        let startY = 0;
+        const maxBalance = currentUser.balance;
+
+        card.addEventListener('touchstart', (e) => { startY = e.touches[0].clientY; });
+        
+        card.addEventListener('touchmove', (e) => {
+            const currentY = e.touches[0].clientY;
+            const diff = startY - currentY;
+            
+            if (diff > 0) {
+                const overlay = document.getElementById('donate-overlay');
+                const txt = document.getElementById('donate-text');
+                
+                const screenHeight = window.innerHeight;
+                const percentage = diff / screenHeight; 
+                let amount = Math.min(maxBalance, Math.floor(percentage * maxBalance * 1.5));
+                amount = Math.floor(amount);
+
+                overlay.style.height = diff + 'px';
+                txt.textContent = `$${amount}`;
+                txt.style.opacity = 1;
+            }
+        });
+
+        card.addEventListener('touchend', async (e) => {
+            const diff = startY - e.changedTouches[0].clientY;
+            const screenHeight = window.innerHeight;
+            const percentage = diff / screenHeight;
+            
+            let finalAmount = Math.min(maxBalance, Math.floor(percentage * maxBalance * 1.5));
+            if (finalAmount < 1) finalAmount = 0;
+
+            if (finalAmount > 0) {
+                await processDonate(photo.id, finalAmount, photo.authorId);
+            }
+            
+            document.getElementById('donate-overlay').style.height = '0';
+            document.getElementById('donate-text').style.opacity = 0;
+        });
+
+        container.innerHTML = '';
+        container.appendChild(card);
+    }
+
+    async function processDonate(id, amount, authorId) {
+        if (amount <= 0) return;
+        if (amount > currentUser.balance) {
+            alert("Недостаточно средств!");
+            return;
+        }
+
+        try {
+            const res = await fetch(API_URL + '/api/donate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    photoId: id, amount: amount, senderId: currentUser.id, authorId: authorId 
+                })
+            });
+            const data = await res.json();
+            if (data.error) throw new Error(data.error);
+
+            currentUser.balance = data.newBalance;
+            alert(`Донат $${amount} отправлен!`);
+            loadFeed();
+        } catch (e) {
+            alert("Ошибка: " + e.message);
+        }
+    }
+    
+    // --- Пополнение ---
+    function openDepositModal() {
+        if (!tonConnectUI.wallet) {
+            alert("Сначала подключите кошелек!");
+            return;
+        }
+        document.getElementById('deposit-modal').classList.add('open');
+    }
+
+    async function sendDeposit(tonAmount) {
+        closeModal('deposit-modal');
+        const amountNano = (tonAmount * 1000000000).toString();
+
+        const transaction = {
+            validUntil: Math.floor(Date.now() / 1000) + 60,
+            messages: [{
+                address: PROJECT_WALLET,
+                amount: amountNano
+            }]
+        };
+
+        try {
+            await tonConnectUI.sendTransaction(transaction);
+            
+            // Уведомляем сервер
+            await fetch(API_URL + '/api/deposit', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId: currentUser.id, amount: tonAmount })
+            });
+            
+            alert(`Готово! Баланс обновлен.`);
+            loadProfile();
+        } catch (e) {
+            console.error(e);
+            alert("Ошибка транзакции.");
+        }
+    }
+
+    // --- Вывод ---
+    function openPayoutModal() { document.getElementById('payout-modal').classList.add('open'); }
+    
+    async function requestPayout() {
+        const amount = parseFloat(document.getElementById('payout-amount').value);
+        const wallet = document.getElementById('payout-wallet').value;
+        if (!amount || !wallet) return alert("Заполните поля");
+
+        await fetch(API_URL + '/api/request_payout', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: currentUser.id, amount: amount, wallet: wallet })
+        });
+        alert("Заявка создана!");
+        closeModal('payout-modal');
+        loadProfile();
+    }
+
+    // --- Комментарии ---
+    function openComments(id) {
+        currentPhotoId = id;
+        const photo = photos.find(p => p.id == id);
+        const list = document.getElementById('comments-list');
+        list.innerHTML = photo.comments.map(c => `<div class="comment"><b>${c.author}</b>: ${c.text}</div>`).join('') || "Пусто";
+        document.getElementById('comments-modal').classList.add('open');
+    }
+    async function postComment() {
+        const text = document.getElementById('comment-input').value;
+        await fetch(API_URL + '/api/comment', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ photoId: currentPhotoId, text: text, author: `User${currentUser.id}` })
+        });
+        document.getElementById('comment-input').value = "";
+        loadFeed();
+        openComments(currentPhotoId);
+    }
+
+    // --- Загрузка фото ---
+    document.getElementById('photo-input').addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const formData = new FormData();
+        formData.append('photo', file);
+        formData.append('authorId', currentUser.id);
+        formData.append('author', `User${currentUser.id}`);
+
+        await fetch(API_URL + '/api/upload', { method: 'POST', body: formData });
+        alert('Фото загружено!');
+        loadFeed();
+    });
+
+    function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+</script>
+</body>
+</html>
